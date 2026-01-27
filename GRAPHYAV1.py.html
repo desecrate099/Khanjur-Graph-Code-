@@ -1,0 +1,127 @@
+<html>
+<head>
+<title>GRAPHYAV1.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #7a7e85;}
+.s4 { color: #6aab73;}
+.s5 { color: #2aacb8;}
+</style>
+</head>
+<body bgcolor="#191a1c">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+GRAPHYAV1.py</font>
+</center></td></tr></table>
+<pre><span class="s0">import </span><span class="s1">pandas </span><span class="s0">as </span><span class="s1">pd</span>
+<span class="s0">import </span><span class="s1">matplotlib</span><span class="s2">.</span><span class="s1">pyplot </span><span class="s0">as </span><span class="s1">plt</span>
+<span class="s0">from </span><span class="s1">pathlib </span><span class="s0">import </span><span class="s1">Path</span>
+
+<span class="s3"># Go to the file, right-click it, choose &quot;Copy as path&quot;, then paste it here after the r</span>
+<span class="s1">file_path </span><span class="s2">= </span><span class="s1">Path</span><span class="s2">(</span><span class="s4">r&quot;C:\Users\sprid\Downloads\SMAstrain.xls&quot;</span><span class="s2">)</span>
+
+<span class="s3"># ----------------------------- USER SETTINGS -----------------------------</span>
+<span class="s1">start </span><span class="s2">= </span><span class="s5">10          </span><span class="s3"># Row where the header row</span>
+<span class="s1">end </span><span class="s2">= </span><span class="s0">None          </span><span class="s3"># Set to a number OR None to read to the bottom</span>
+
+<span class="s3"># Sheet name → color mapping (ADD or REMOVE SHEETS HERE)</span>
+<span class="s1">sheet_colors </span><span class="s2">= {</span>
+    <span class="s4">&quot;300um samle&quot;</span><span class="s2">: </span><span class="s4">&quot;red&quot;</span><span class="s2">,     </span><span class="s3"># Chang this to the exact Excel sheet name</span>
+    <span class="s4">&quot;100um sample&quot;</span><span class="s2">: </span><span class="s4">&quot;blue&quot;</span><span class="s2">,</span>
+<span class="s2">}</span>
+
+<span class="s1">x_axis </span><span class="s2">= </span><span class="s4">&quot;Time sec&quot;     </span><span class="s3"># column name for X-axis (from file)</span>
+<span class="s1">y_axis </span><span class="s2">= </span><span class="s4">&quot;LOAD N&quot;       </span><span class="s3"># column name for Y-axis (from file)</span>
+
+<span class="s3"># Optional display labels (set to None to use column names)</span>
+<span class="s1">x_label </span><span class="s2">= </span><span class="s4">&quot;Time (seconds)&quot;</span>
+<span class="s1">y_label </span><span class="s2">= </span><span class="s4">&quot;Load (Newtons)&quot;</span>
+
+<span class="s1">label_fontsize </span><span class="s2">= </span><span class="s5">20  </span><span class="s3"># Size for x and y axis labels</span>
+<span class="s1">title_fontsize </span><span class="s2">= </span><span class="s5">20  </span><span class="s3"># Size for the plot title</span>
+<span class="s1">tick_fontsize  </span><span class="s2">= </span><span class="s5">10  </span><span class="s3"># Size for the tick numbers on axes</span>
+<span class="s1">legend_fontsize </span><span class="s2">= </span><span class="s5">12 </span><span class="s3"># Size for legend text</span>
+<span class="s3"># ------------------------------------------------------------------------</span>
+
+<span class="s3"># ------------------------- DO NOT TOUCH BELOW ---------------------------</span>
+<span class="s0">if not </span><span class="s1">file_path</span><span class="s2">.</span><span class="s1">exists</span><span class="s2">():</span>
+    <span class="s0">raise </span><span class="s1">FileNotFoundError</span><span class="s2">(</span><span class="s4">f&quot;File not found: </span><span class="s0">{</span><span class="s1">file_path</span><span class="s0">}</span><span class="s4">&quot;</span><span class="s2">)</span>
+
+<span class="s1">ext </span><span class="s2">= </span><span class="s1">file_path</span><span class="s2">.</span><span class="s1">suffix</span><span class="s2">.</span><span class="s1">lower</span><span class="s2">()</span>
+
+<span class="s1">skip </span><span class="s2">= </span><span class="s1">start </span><span class="s2">- </span><span class="s5">1</span>
+
+<span class="s0">if </span><span class="s1">end </span><span class="s0">is not None</span><span class="s2">:</span>
+    <span class="s0">if </span><span class="s1">end </span><span class="s2">&lt; </span><span class="s1">start</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">ValueError</span><span class="s2">(</span><span class="s4">f&quot;'end' (</span><span class="s0">{</span><span class="s1">end</span><span class="s0">}</span><span class="s4">) must be &gt;= 'start' (</span><span class="s0">{</span><span class="s1">start</span><span class="s0">}</span><span class="s4">).&quot;</span><span class="s2">)</span>
+    <span class="s1">rows </span><span class="s2">= </span><span class="s1">end </span><span class="s2">- </span><span class="s1">start </span><span class="s2">+ </span><span class="s5">1</span>
+<span class="s0">else</span><span class="s2">:</span>
+    <span class="s1">rows </span><span class="s2">= </span><span class="s0">None</span>
+
+<span class="s1">x_label_to_use </span><span class="s2">= </span><span class="s1">x_label </span><span class="s0">if </span><span class="s1">x_label </span><span class="s0">is not None else </span><span class="s1">x_axis</span>
+<span class="s1">y_label_to_use </span><span class="s2">= </span><span class="s1">y_label </span><span class="s0">if </span><span class="s1">y_label </span><span class="s0">is not None else </span><span class="s1">y_axis</span>
+
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">figure</span><span class="s2">()</span>
+
+<span class="s0">for </span><span class="s1">sheet_name</span><span class="s2">, </span><span class="s1">color </span><span class="s0">in </span><span class="s1">sheet_colors</span><span class="s2">.</span><span class="s1">items</span><span class="s2">():</span>
+
+    <span class="s0">if </span><span class="s1">ext </span><span class="s2">== </span><span class="s4">&quot;.csv&quot;</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">ValueError</span><span class="s2">(</span><span class="s4">&quot;Multiple sheets only work with Excel (.xls/.xlsx) files.&quot;</span><span class="s2">)</span>
+
+    <span class="s0">elif </span><span class="s1">ext </span><span class="s0">in </span><span class="s2">[</span><span class="s4">&quot;.xls&quot;</span><span class="s2">, </span><span class="s4">&quot;.xlsx&quot;</span><span class="s2">]:</span>
+        <span class="s1">engine </span><span class="s2">= </span><span class="s4">&quot;xlrd&quot; </span><span class="s0">if </span><span class="s1">ext </span><span class="s2">== </span><span class="s4">&quot;.xls&quot; </span><span class="s0">else </span><span class="s4">&quot;openpyxl&quot;</span>
+        <span class="s1">df </span><span class="s2">= </span><span class="s1">pd</span><span class="s2">.</span><span class="s1">read_excel</span><span class="s2">(</span>
+            <span class="s1">file_path</span><span class="s2">,</span>
+            <span class="s1">sheet_name</span><span class="s2">=</span><span class="s1">sheet_name</span><span class="s2">,</span>
+            <span class="s1">skiprows</span><span class="s2">=</span><span class="s1">skip</span><span class="s2">,</span>
+            <span class="s1">nrows</span><span class="s2">=</span><span class="s1">rows</span><span class="s2">,</span>
+            <span class="s1">header</span><span class="s2">=</span><span class="s5">0</span><span class="s2">,</span>
+            <span class="s1">engine</span><span class="s2">=</span><span class="s1">engine</span>
+        <span class="s2">)</span>
+    <span class="s0">else</span><span class="s2">:</span>
+        <span class="s0">raise </span><span class="s1">ValueError</span><span class="s2">(</span><span class="s4">f&quot;Unsupported file type: </span><span class="s0">{</span><span class="s1">ext</span><span class="s0">}</span><span class="s4">. Use .csv, .xls, or .xlsx&quot;</span><span class="s2">)</span>
+
+    <span class="s3"># Basic column checks</span>
+    <span class="s0">for </span><span class="s1">col </span><span class="s0">in </span><span class="s2">(</span><span class="s1">x_axis</span><span class="s2">, </span><span class="s1">y_axis</span><span class="s2">):</span>
+        <span class="s0">if </span><span class="s1">col </span><span class="s0">not in </span><span class="s1">df</span><span class="s2">.</span><span class="s1">columns</span><span class="s2">:</span>
+            <span class="s0">raise </span><span class="s1">KeyError</span><span class="s2">(</span>
+                <span class="s4">f&quot;Column '</span><span class="s0">{</span><span class="s1">col</span><span class="s0">}</span><span class="s4">' not found in sheet '</span><span class="s0">{</span><span class="s1">sheet_name</span><span class="s0">}</span><span class="s4">'. &quot;</span>
+                <span class="s4">f&quot;Available columns: </span><span class="s0">{</span><span class="s1">list</span><span class="s2">(</span><span class="s1">df</span><span class="s2">.</span><span class="s1">columns</span><span class="s2">)</span><span class="s0">}</span><span class="s4">&quot;</span>
+            <span class="s2">)</span>
+
+    <span class="s3"># Plot each sheet with chosen color</span>
+    <span class="s1">plt</span><span class="s2">.</span><span class="s1">scatter</span><span class="s2">(</span>
+        <span class="s1">df</span><span class="s2">[</span><span class="s1">x_axis</span><span class="s2">],</span>
+        <span class="s1">df</span><span class="s2">[</span><span class="s1">y_axis</span><span class="s2">],</span>
+        <span class="s1">label</span><span class="s2">=</span><span class="s1">sheet_name</span><span class="s2">,   </span><span class="s3"># Legend entry</span>
+        <span class="s1">color</span><span class="s2">=</span><span class="s1">color</span><span class="s2">,        </span><span class="s3"># YOUR COLOR HERE</span>
+        <span class="s1">s</span><span class="s2">=</span><span class="s5">15</span><span class="s2">,</span>
+        <span class="s1">alpha</span><span class="s2">=</span><span class="s5">0.8</span>
+    <span class="s2">)</span>
+
+<span class="s1">row_range </span><span class="s2">= </span><span class="s4">f&quot;</span><span class="s0">{</span><span class="s1">start</span><span class="s0">}</span><span class="s4">–</span><span class="s0">{</span><span class="s1">end</span><span class="s0">}</span><span class="s4">&quot; </span><span class="s0">if </span><span class="s1">end </span><span class="s0">is not None else </span><span class="s4">f&quot;</span><span class="s0">{</span><span class="s1">start</span><span class="s0">}</span><span class="s4">–end&quot;</span>
+<span class="s1">sheet_list </span><span class="s2">= </span><span class="s4">&quot;, &quot;</span><span class="s2">.</span><span class="s1">join</span><span class="s2">(</span><span class="s1">sheet_colors</span><span class="s2">.</span><span class="s1">keys</span><span class="s2">())</span>
+
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">xlabel</span><span class="s2">(</span><span class="s1">x_label_to_use</span><span class="s2">, </span><span class="s1">fontsize</span><span class="s2">=</span><span class="s1">label_fontsize</span><span class="s2">)</span>
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">ylabel</span><span class="s2">(</span><span class="s1">y_label_to_use</span><span class="s2">, </span><span class="s1">fontsize</span><span class="s2">=</span><span class="s1">label_fontsize</span><span class="s2">)</span>
+
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">title</span><span class="s2">(</span>
+    <span class="s4">f&quot;</span><span class="s0">{</span><span class="s1">y_label_to_use</span><span class="s0">} </span><span class="s4">vs </span><span class="s0">{</span><span class="s1">x_label_to_use</span><span class="s0">} </span><span class="s4">&quot;</span>
+    <span class="s4">f&quot;(Sheets: </span><span class="s0">{</span><span class="s1">sheet_list</span><span class="s0">}</span><span class="s4">, rows </span><span class="s0">{</span><span class="s1">row_range</span><span class="s0">}</span><span class="s4">)&quot;</span><span class="s2">,</span>
+    <span class="s1">fontsize</span><span class="s2">=</span><span class="s1">title_fontsize</span>
+<span class="s2">)</span>
+
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">xticks</span><span class="s2">(</span><span class="s1">fontsize</span><span class="s2">=</span><span class="s1">tick_fontsize</span><span class="s2">)</span>
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">yticks</span><span class="s2">(</span><span class="s1">fontsize</span><span class="s2">=</span><span class="s1">tick_fontsize</span><span class="s2">)</span>
+
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">legend</span><span class="s2">(</span><span class="s1">fontsize</span><span class="s2">=</span><span class="s1">legend_fontsize</span><span class="s2">)</span>
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">grid</span><span class="s2">(</span><span class="s0">True</span><span class="s2">)</span>
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">tight_layout</span><span class="s2">()</span>
+<span class="s1">plt</span><span class="s2">.</span><span class="s1">show</span><span class="s2">()</span>
+</pre>
+</body>
+</html>
