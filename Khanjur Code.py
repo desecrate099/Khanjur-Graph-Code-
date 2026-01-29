@@ -2,25 +2,25 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# Go to the file, right-click it, choose "Copy as path", then paste it here after the r
-file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.xls")
-
 # ----------------------------- USER SETTINGS -----------------------------
-start = 10          # Row where the header row
+file_path = Path(r"C:\Users\sprid\Downloads\TiNiCu_700_15min_acid6+CuAPS.csv")
+
+start = 34          # Row number where the header row is (1-based)
 end = None          # Set to a number OR None to read to the bottom
 
-# Sheet name → color mapping (ADD or REMOVE SHEETS HERE)
+# For Excel only (ADD or REMOVE SHEETS HERE).
+# If empty or None, the code will plot ALL sheets in the workbook.
 sheet_colors = {
-    "300um samle": "red",     # Chang this to the exact Excel sheet name
-    "100um sample": "blue",
+    # "Sheet1": "red",
+    # "Sheet2": "blue",
 }
 
-x_axis = "Time sec"     # column name for X-axis (from file)
-y_axis = "LOAD N"       # column name for Y-axis (from file)
+x_axis = "Angle"    # column name for X-axis
+y_axis = "ESD"      # column name for Y-axis
 
 # Optional display labels (set to None to use column names)
-x_label = "Time (seconds)"
-y_label = "Load (Newtons)"
+x_label = None
+y_label = None
 
 label_fontsize = 20  # Size for x and y axis labels
 title_fontsize = 20  # Size for the plot title
@@ -35,6 +35,8 @@ if not file_path.exists():
 ext = file_path.suffix.lower()
 
 skip = start - 1
+if skip < 0:
+    raise ValueError("'start' must be >= 1")
 
 if end is not None:
     if end < start:
@@ -48,13 +50,47 @@ y_label_to_use = y_label if y_label is not None else y_axis
 
 plt.figure()
 
-for sheet_name, color in sheet_colors.items():
+def plot_df(df, label, color=None):
+    df.columns = [str(c).strip() for c in df.columns]
 
-    if ext == ".csv":
-        raise ValueError("Multiple sheets only work with Excel (.xls/.xlsx) files.")
+    # Column checks
+    for col in (x_axis, y_axis):
+        if col not in df.columns:
+            raise KeyError(
+                f"Column '{col}' not found in '{label}'. "
+                f"Available columns: {list(df.columns)}"
+            )
 
-    elif ext in [".xls", ".xlsx"]:
-        engine = "xlrd" if ext == ".xls" else "openpyxl"
+    plt.scatter(
+        df[x_axis],
+        df[y_axis],
+        label=label,
+        color=color,
+        s=15,
+        alpha=0.8
+    )
+
+if ext == ".csv":
+    df = pd.read_csv(
+        file_path,
+        skiprows=skip,
+        nrows=rows,
+        header=0,
+        skipinitialspace=True,
+        on_bad_lines="skip"
+    )
+    plot_df(df, label=file_path.stem, color=None)
+
+elif ext in [".xls", ".xlsx"]:
+    engine = "xlrd" if ext == ".xls" else "openpyxl"
+
+    if sheet_colors:
+        sheets_to_plot = list(sheet_colors.items())  
+    else:
+        xl = pd.ExcelFile(file_path, engine=engine)
+        sheets_to_plot = [(name, None) for name in xl.sheet_names]
+
+    for sheet_name, color in sheets_to_plot:
         df = pd.read_excel(
             file_path,
             sheet_name=sheet_name,
@@ -63,36 +99,18 @@ for sheet_name, color in sheet_colors.items():
             header=0,
             engine=engine
         )
-    else:
-        raise ValueError(f"Unsupported file type: {ext}. Use .csv, .xls, or .xlsx")
+        plot_df(df, label=sheet_name, color=color)
 
-    # Basic column checks
-    for col in (x_axis, y_axis):
-        if col not in df.columns:
-            raise KeyError(
-                f"Column '{col}' not found in sheet '{sheet_name}'. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-    # Plot each sheet with chosen color
-    plt.scatter(
-        df[x_axis],
-        df[y_axis],
-        label=sheet_name,   # Legend entry
-        color=color,        # YOUR COLOR HERE
-        s=15,
-        alpha=0.8
-    )
+else:
+    raise ValueError(f"Unsupported file type: {ext}. Use .csv, .xls, or .xlsx")
 
 row_range = f"{start}–{end}" if end is not None else f"{start}–end"
-sheet_list = ", ".join(sheet_colors.keys())
 
 plt.xlabel(x_label_to_use, fontsize=label_fontsize)
 plt.ylabel(y_label_to_use, fontsize=label_fontsize)
 
 plt.title(
-    f"{y_label_to_use} vs {x_label_to_use} "
-    f"(Sheets: {sheet_list}, rows {row_range})",
+    f"{y_label_to_use} vs {x_label_to_use} (rows {row_range})",
     fontsize=title_fontsize
 )
 
