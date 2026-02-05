@@ -3,29 +3,34 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # ----------------------------- USER SETTINGS -----------------------------
-file_path = Path(r"C:\Users\sprid\Downloads\TiNiCu_700_15min_acid6+CuAPS.csv")
+file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.xlsx")
 
-start = 34          # Row number where the header row is (1-based)
+start = 10          # Row number where the header row is (1-based)
 end = None          # Set to a number OR None to read to the bottom
 
-# For Excel only (ADD or REMOVE SHEETS HERE).
-# If empty or None, the code will plot ALL sheets in the workbook.
+# Excel sheet → color mapping
+# If empty or None, ALL sheets will be plotted
 sheet_colors = {
-    # "Sheet1": "red",
+    # "100um sample": "red",
     # "Sheet2": "blue",
 }
 
-x_axis = "Angle"    # column name for X-axis
-y_axis = "ESD"      # column name for Y-axis
+x_axis = "POSITION mm"   # column name for X-axis
+y_axis = "LOAD N"        # column name for Y-axis
 
-# Optional display labels (set to None to use column names)
+# Optional axis labels (set to None to use column names)
 x_label = None
 y_label = None
 
-label_fontsize = 20  # Size for x and y axis labels
-title_fontsize = 20  # Size for the plot title
-tick_fontsize  = 10  # Size for the tick numbers on axes
-legend_fontsize = 12 # Size for legend text
+# 🔹 OPTIONAL CUSTOM TITLE (set to None for automatic title)
+plot_title = "Room T 100 microns"
+# Example:
+# plot_title = "SMA Load vs Position"
+
+label_fontsize = 20
+title_fontsize = 20
+tick_fontsize  = 10
+legend_fontsize = 12
 # ------------------------------------------------------------------------
 
 # ------------------------- DO NOT TOUCH BELOW ---------------------------
@@ -34,9 +39,10 @@ if not file_path.exists():
 
 ext = file_path.suffix.lower()
 
-skip = start - 1
-if skip < 0:
+if start < 1:
     raise ValueError("'start' must be >= 1")
+
+skip = start - 1
 
 if end is not None:
     if end < start:
@@ -53,7 +59,6 @@ plt.figure()
 def plot_df(df, label, color=None):
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Column checks
     for col in (x_axis, y_axis):
         if col not in df.columns:
             raise KeyError(
@@ -70,6 +75,7 @@ def plot_df(df, label, color=None):
         alpha=0.8
     )
 
+# ----------------------------- LOAD DATA --------------------------------
 if ext == ".csv":
     df = pd.read_csv(
         file_path,
@@ -79,13 +85,13 @@ if ext == ".csv":
         skipinitialspace=True,
         on_bad_lines="skip"
     )
-    plot_df(df, label=file_path.stem, color=None)
+    plot_df(df, label=file_path.stem)
 
 elif ext in [".xls", ".xlsx"]:
-    engine = "xlrd" if ext == ".xls" else "openpyxl"
+    engine = "openpyxl" if ext == ".xlsx" else "xlrd"
 
     if sheet_colors:
-        sheets_to_plot = list(sheet_colors.items())  
+        sheets_to_plot = list(sheet_colors.items())
     else:
         xl = pd.ExcelFile(file_path, engine=engine)
         sheets_to_plot = [(name, None) for name in xl.sheet_names]
@@ -102,22 +108,28 @@ elif ext in [".xls", ".xlsx"]:
         plot_df(df, label=sheet_name, color=color)
 
 else:
-    raise ValueError(f"Unsupported file type: {ext}. Use .csv, .xls, or .xlsx")
+    raise ValueError(f"Unsupported file type: {ext}")
 
+# ----------------------------- FORMATTING -------------------------------
 row_range = f"{start}–{end}" if end is not None else f"{start}–end"
+
+title_to_use = (
+    plot_title
+    if plot_title is not None
+    else f"{y_label_to_use} vs {x_label_to_use} (rows {row_range})"
+)
 
 plt.xlabel(x_label_to_use, fontsize=label_fontsize)
 plt.ylabel(y_label_to_use, fontsize=label_fontsize)
-
-plt.title(
-    f"{y_label_to_use} vs {x_label_to_use} (rows {row_range})",
-    fontsize=title_fontsize
-)
+plt.title(title_to_use, fontsize=title_fontsize)
 
 plt.xticks(fontsize=tick_fontsize)
 plt.yticks(fontsize=tick_fontsize)
 
-plt.legend(fontsize=legend_fontsize)
+handles, labels = plt.gca().get_legend_handles_labels()
+if handles:
+    plt.legend(fontsize=legend_fontsize)
+
 plt.grid(True)
 plt.tight_layout()
 plt.show()
