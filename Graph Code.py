@@ -5,10 +5,9 @@ from pathlib import Path
 # ----------------------------- USER SETTINGS -----------------------------
 file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.xlsx")
 
-start = 10          # Row number where the header row is (1-based)
+start = 10          # Row number where the header row is 
 end = None          # Set to a number OR None to read to the bottom
 
-# Excel sheet → color mapping
 # If empty or None, ALL sheets will be plotted
 sheet_colors = {
     # "100um sample": "red",
@@ -22,7 +21,7 @@ y_axis = "LOAD N"        # column name for Y-axis
 x_label = None
 y_label = None
 
-# 🔹 OPTIONAL CUSTOM TITLE (set to None for automatic title)
+# OPTIONAL CUSTOM TITLE (set to None for automatic title)
 plot_title = "Room T 100 microns"
 # Example:
 # plot_title = "SMA Load vs Position"
@@ -133,3 +132,4 @@ if handles:
 plt.grid(True)
 plt.tight_layout()
 plt.show()
+
