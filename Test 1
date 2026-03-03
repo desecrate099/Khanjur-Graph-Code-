@@ -4,25 +4,22 @@ from pathlib import Path
 import math
 
 # ----------------------------- USER SETTINGS -----------------------------
-file_path = Path(r"C:\MTL32_2020\Data\TimeData_20012026_120453_10_Feb_26_14_59_33_24.csv")
+file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.csv")
 
-start = 10          # Row number where the header row is 
-end = None          # Set to a number OR None to read to the bottom
+start = 10
+end = None
 
-# If empty or None, ALL sheets will be plotted
 sheet_colors = {
     # "100um sample": "red",
     # "Sheet2": "blue",
 }
 
-x_axis = "POSITION mm"   # column name for X-axis
-y_axis = "LOAD N"        # column name for Y-axis
+x_axis = "POSITION mm"
+y_axis = "LOAD N"
 
-# Optional axis labels (set to None to use column names)
 x_label = None
 y_label = None
 
-# OPTIONAL CUSTOM TITLE (set to None for automatic title)
 plot_title = "Room T 100 microns"
 
 label_fontsize = 20
@@ -31,18 +28,15 @@ tick_fontsize  = 10
 legend_fontsize = 12
 
 # -------------------- MECHANICAL CALCULATION SETTINGS --------------------
-# All in mm
-initial_position = 64      # mm (manual zero reference)
-width  = 0.3   
-thickness = 0.5   
-gauge_length_L0 = 0.1
-
-# Calculate cross-sectional area automatically
-cross_area_A0 = (width*thickness)
-
+initial_position = 64      # mm
+width  = 0.3               # mm
+thickness = 0.5            # mm
+gauge_length_L0 = 0.1      # mm
 # ------------------------------------------------------------------------
 
 # ------------------------- DO NOT TOUCH BELOW ---------------------------
+cross_area_A0 = width * thickness
+
 if not file_path.exists():
     raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -60,9 +54,6 @@ if end is not None:
 else:
     rows = None
 
-x_label_to_use = x_label if x_label is not None else x_axis
-y_label_to_use = y_label if y_label is not None else y_axis
-
 engine = "openpyxl" if ext == ".xlsx" else "xlrd"
 
 if ext in [".xls", ".xlsx"]:
@@ -76,134 +67,81 @@ elif ext == ".csv":
 else:
     raise ValueError(f"Unsupported file type: {ext}")
 
-# ============================ PLOT 1 ====================================
-# LOAD vs DISPLACEMENT
-plt.figure()
+# ======================= BOTH PLOTS IN ONE WINDOW =========================
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
-def plot_load_displacement(df, label, color=None):
+for sheet_name, color in sheets_to_plot:
+
+    if ext == ".csv":
+        df = pd.read_csv(
+            file_path,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            skipinitialspace=True,
+            on_bad_lines="skip"
+        )
+    else:
+        df = pd.read_excel(
+            file_path,
+            sheet_name=sheet_name,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            engine=engine
+        )
+
     df.columns = [str(c).strip() for c in df.columns]
 
-    for col in (x_axis, y_axis):
-        if col not in df.columns:
-            raise KeyError(
-                f"Column '{col}' not found in '{label}'. "
-                f"Available columns: {list(df.columns)}"
-            )
+    if x_axis not in df.columns or y_axis not in df.columns:
+        raise KeyError(
+            f"Columns not found. Available columns: {list(df.columns)}"
+        )
 
     displacement = df[x_axis] - initial_position
     load = df[y_axis]
 
-    plt.scatter(
+    # -------- PLOT 1: LOAD vs DISPLACEMENT --------
+    ax1.scatter(
         displacement,
         load,
-        label=label,
+        label=sheet_name,
         color=color,
         s=15,
         alpha=0.8
     )
 
-for sheet_name, color in sheets_to_plot:
-
-    if ext == ".csv":
-        df = pd.read_csv(
-            file_path,
-            skiprows=skip,
-            nrows=rows,
-            header=0,
-            skipinitialspace=True,
-            on_bad_lines="skip"
-        )
-    else:
-        df = pd.read_excel(
-            file_path,
-            sheet_name=sheet_name,
-            skiprows=skip,
-            nrows=rows,
-            header=0,
-            engine=engine
-        )
-
-    plot_load_displacement(df, label=sheet_name, color=color)
-
-row_range = f"{start}–{end}" if end is not None else f"{start}–end"
-
-title_to_use = (
-    plot_title
-    if plot_title is not None
-    else f"Load vs Displacement (rows {row_range})"
-)
-
-plt.xlabel("Displacement (mm)", fontsize=label_fontsize)
-plt.ylabel("Load (N)", fontsize=label_fontsize)
-plt.title(title_to_use, fontsize=title_fontsize)
-
-plt.xticks(fontsize=tick_fontsize)
-plt.yticks(fontsize=tick_fontsize)
-
-handles, labels = plt.gca().get_legend_handles_labels()
-if handles:
-    plt.legend(fontsize=legend_fontsize)
-
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-# ============================ PLOT 2 ====================================
-# STRESS vs STRAIN
-plt.figure()
-
-def plot_stress_strain(df, label, color=None):
-    df.columns = [str(c).strip() for c in df.columns]
-
-    displacement = df[x_axis] - initial_position
-    load = df[y_axis]
-
+    # -------- PLOT 2: STRESS vs STRAIN --------
     strain = displacement / gauge_length_L0
-    stress = load / cross_area_A0   # N/mm^2 = MPa
+    stress = load / cross_area_A0   # MPa (N/mm^2)
 
-    plt.scatter(
+    ax2.scatter(
         strain,
         stress,
-        label=label,
+        label=sheet_name,
         color=color,
         s=15,
         alpha=0.8
     )
 
-for sheet_name, color in sheets_to_plot:
+# ---------------- FORMAT LEFT PLOT ----------------
+ax1.set_xlabel("Displacement (mm)", fontsize=label_fontsize)
+ax1.set_ylabel("Load (N)", fontsize=label_fontsize)
+ax1.set_title("Load vs Displacement", fontsize=title_fontsize)
+ax1.tick_params(axis='both', labelsize=tick_fontsize)
+ax1.grid(True)
 
-    if ext == ".csv":
-        df = pd.read_csv(
-            file_path,
-            skiprows=skip,
-            nrows=rows,
-            header=0,
-            skipinitialspace=True,
-            on_bad_lines="skip"
-        )
-    else:
-        df = pd.read_excel(
-            file_path,
-            sheet_name=sheet_name,
-            skiprows=skip,
-            nrows=rows,
-            header=0,
-            engine=engine
-        )
+# ---------------- FORMAT RIGHT PLOT ----------------
+ax2.set_xlabel("Strain (mm/mm)", fontsize=label_fontsize)
+ax2.set_ylabel("Stress (MPa)", fontsize=label_fontsize)
+ax2.set_title("Stress vs Strain", fontsize=title_fontsize)
+ax2.tick_params(axis='both', labelsize=tick_fontsize)
+ax2.grid(True)
 
-    plot_stress_strain(df, label=sheet_name, color=color)
-
-plt.xlabel("Strain (mm/mm)", fontsize=label_fontsize)
-plt.ylabel("Stress (MPa)", fontsize=label_fontsize)
-plt.title("Stress vs Strain", fontsize=title_fontsize)
-
-plt.xticks(fontsize=tick_fontsize)
-plt.yticks(fontsize=tick_fontsize)
-
-handles, labels = plt.gca().get_legend_handles_labels()
+# Shared Legend
+handles, labels = ax1.get_legend_handles_labels()
 if handles:
-    plt.legend(fontsize=legend_fontsize)
+    fig.legend(handles, labels, fontsize=legend_fontsize, loc="upper center")
 
-plt.grid(True)
 plt.tight_layout()
 plt.show()
