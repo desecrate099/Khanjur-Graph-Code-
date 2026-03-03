@@ -67,6 +67,21 @@ elif ext == ".csv":
 else:
     raise ValueError(f"Unsupported file type: {ext}")
 
+# ================= NEW FUNCTION: MAX VALUES =================
+def print_max_values(displacement, load, label):
+    max_displacement = displacement.max()
+    max_load = load.max()
+
+    # Displacement at maximum load
+    idx_max_load = load.idxmax()
+    displacement_at_max_load = displacement.loc[idx_max_load]
+
+    print(f"\n--- {label} ---")
+    print(f"Maximum Displacement: {max_displacement:.5f} mm")
+    print(f"Maximum Load: {max_load:.5f} N")
+    print(f"Displacement at Max Load: {displacement_at_max_load:.5f} mm")
+
+
 # ======================= BOTH PLOTS IN ONE WINDOW =========================
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -100,6 +115,9 @@ for sheet_name, color in sheets_to_plot:
 
     displacement = df[x_axis] - initial_position
     load = df[y_axis]
+
+    # ✅ CALL NEW FUNCTION HERE
+    print_max_values(displacement, load, sheet_name)
 
     # -------- PLOT 1: LOAD vs DISPLACEMENT --------
     ax1.scatter(
