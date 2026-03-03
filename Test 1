@@ -4,7 +4,7 @@ from pathlib import Path
 import math
 
 # ----------------------------- USER SETTINGS -----------------------------
-file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.csv")
+file_path = Path(r"C:\MTL32_2020\Data\TimeData_20012026_120453_10_Feb_26_14_59_33_24.csv")
 
 start = 10          # Row number where the header row is 
 end = None          # Set to a number OR None to read to the bottom
@@ -31,10 +31,11 @@ tick_fontsize  = 10
 legend_fontsize = 12
 
 # -------------------- MECHANICAL CALCULATION SETTINGS --------------------
-
-initial_position = 67      # mm (manual zero reference)
-width  = 0.3     # mm
-thickness = 0.5      # wire diameter in mm (100 µm = 0.1 mm)
+# All in mm
+initial_position = 64      # mm (manual zero reference)
+width  = 0.3   
+thickness = 0.5   
+gauge_length_L0 = 0.1
 
 # Calculate cross-sectional area automatically
 cross_area_A0 = (width*thickness)
