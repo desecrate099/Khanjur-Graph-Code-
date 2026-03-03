@@ -1,0 +1,208 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+import math
+
+# ----------------------------- USER SETTINGS -----------------------------
+file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.csv")
+
+start = 10          # Row number where the header row is 
+end = None          # Set to a number OR None to read to the bottom
+
+# If empty or None, ALL sheets will be plotted
+sheet_colors = {
+    # "100um sample": "red",
+    # "Sheet2": "blue",
+}
+
+x_axis = "POSITION mm"   # column name for X-axis
+y_axis = "LOAD N"        # column name for Y-axis
+
+# Optional axis labels (set to None to use column names)
+x_label = None
+y_label = None
+
+# OPTIONAL CUSTOM TITLE (set to None for automatic title)
+plot_title = "Room T 100 microns"
+
+label_fontsize = 20
+title_fontsize = 20
+tick_fontsize  = 10
+legend_fontsize = 12
+
+# -------------------- MECHANICAL CALCULATION SETTINGS --------------------
+
+initial_position = 67      # mm (manual zero reference)
+width  = 0.3     # mm
+thickness = 0.5      # wire diameter in mm (100 µm = 0.1 mm)
+
+# Calculate cross-sectional area automatically
+cross_area_A0 = (width*thickness)
+
+# ------------------------------------------------------------------------
+
+# ------------------------- DO NOT TOUCH BELOW ---------------------------
+if not file_path.exists():
+    raise FileNotFoundError(f"File not found: {file_path}")
+
+ext = file_path.suffix.lower()
+
+if start < 1:
+    raise ValueError("'start' must be >= 1")
+
+skip = start - 1
+
+if end is not None:
+    if end < start:
+        raise ValueError(f"'end' ({end}) must be >= 'start' ({start}).")
+    rows = end - start + 1
+else:
+    rows = None
+
+x_label_to_use = x_label if x_label is not None else x_axis
+y_label_to_use = y_label if y_label is not None else y_axis
+
+engine = "openpyxl" if ext == ".xlsx" else "xlrd"
+
+if ext in [".xls", ".xlsx"]:
+    if sheet_colors:
+        sheets_to_plot = list(sheet_colors.items())
+    else:
+        xl = pd.ExcelFile(file_path, engine=engine)
+        sheets_to_plot = [(name, None) for name in xl.sheet_names]
+elif ext == ".csv":
+    sheets_to_plot = [(file_path.stem, None)]
+else:
+    raise ValueError(f"Unsupported file type: {ext}")
+
+# ============================ PLOT 1 ====================================
+# LOAD vs DISPLACEMENT
+plt.figure()
+
+def plot_load_displacement(df, label, color=None):
+    df.columns = [str(c).strip() for c in df.columns]
+
+    for col in (x_axis, y_axis):
+        if col not in df.columns:
+            raise KeyError(
+                f"Column '{col}' not found in '{label}'. "
+                f"Available columns: {list(df.columns)}"
+            )
+
+    displacement = df[x_axis] - initial_position
+    load = df[y_axis]
+
+    plt.scatter(
+        displacement,
+        load,
+        label=label,
+        color=color,
+        s=15,
+        alpha=0.8
+    )
+
+for sheet_name, color in sheets_to_plot:
+
+    if ext == ".csv":
+        df = pd.read_csv(
+            file_path,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            skipinitialspace=True,
+            on_bad_lines="skip"
+        )
+    else:
+        df = pd.read_excel(
+            file_path,
+            sheet_name=sheet_name,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            engine=engine
+        )
+
+    plot_load_displacement(df, label=sheet_name, color=color)
+
+row_range = f"{start}–{end}" if end is not None else f"{start}–end"
+
+title_to_use = (
+    plot_title
+    if plot_title is not None
+    else f"Load vs Displacement (rows {row_range})"
+)
+
+plt.xlabel("Displacement (mm)", fontsize=label_fontsize)
+plt.ylabel("Load (N)", fontsize=label_fontsize)
+plt.title(title_to_use, fontsize=title_fontsize)
+
+plt.xticks(fontsize=tick_fontsize)
+plt.yticks(fontsize=tick_fontsize)
+
+handles, labels = plt.gca().get_legend_handles_labels()
+if handles:
+    plt.legend(fontsize=legend_fontsize)
+
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# ============================ PLOT 2 ====================================
+# STRESS vs STRAIN
+plt.figure()
+
+def plot_stress_strain(df, label, color=None):
+    df.columns = [str(c).strip() for c in df.columns]
+
+    displacement = df[x_axis] - initial_position
+    load = df[y_axis]
+
+    strain = displacement / gauge_length_L0
+    stress = load / cross_area_A0   # N/mm^2 = MPa
+
+    plt.scatter(
+        strain,
+        stress,
+        label=label,
+        color=color,
+        s=15,
+        alpha=0.8
+    )
+
+for sheet_name, color in sheets_to_plot:
+
+    if ext == ".csv":
+        df = pd.read_csv(
+            file_path,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            skipinitialspace=True,
+            on_bad_lines="skip"
+        )
+    else:
+        df = pd.read_excel(
+            file_path,
+            sheet_name=sheet_name,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            engine=engine
+        )
+
+    plot_stress_strain(df, label=sheet_name, color=color)
+
+plt.xlabel("Strain (mm/mm)", fontsize=label_fontsize)
+plt.ylabel("Stress (MPa)", fontsize=label_fontsize)
+plt.title("Stress vs Strain", fontsize=title_fontsize)
+
+plt.xticks(fontsize=tick_fontsize)
+plt.yticks(fontsize=tick_fontsize)
+
+handles, labels = plt.gca().get_legend_handles_labels()
+if handles:
+    plt.legend(fontsize=legend_fontsize)
+
+plt.grid(True)
+plt.tight_layout()
+plt.show()
