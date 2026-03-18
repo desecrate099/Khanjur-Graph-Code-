@@ -1,19 +1,24 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+import math
 
 # ----------------------------- USER SETTINGS -----------------------------
-file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.xls")  # <-- now works
+file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.csv")
 
 start = 10
 end = None
 
 sheet_colors = {
-    # "Sheet1": "red",
+    # "100um sample": "red",
+    # "Sheet2": "blue",
 }
 
 x_axis = "POSITION mm"
 y_axis = "LOAD N"
+
+x_label = None
+y_label = None
 
 plot_title = "Room T 100 microns"
 
@@ -42,28 +47,32 @@ if start < 1:
 
 skip = start - 1
 
-rows = (end - start + 1) if end is not None else None
+if end is not None:
+    if end < start:
+        raise ValueError(f"'end' ({end}) must be >= 'start' ({start}).")
+    rows = end - start + 1
+else:
+    rows = None
 
-# ================= FILE TYPE HANDLING =================
+engine = "openpyxl" if ext == ".xlsx" else "xlrd"
+
 if ext in [".xls", ".xlsx"]:
-    # Let pandas auto-detect engine (best approach)
     if sheet_colors:
         sheets_to_plot = list(sheet_colors.items())
     else:
-        xl = pd.ExcelFile(file_path)
+        xl = pd.ExcelFile(file_path, engine=engine)
         sheets_to_plot = [(name, None) for name in xl.sheet_names]
-
-elif ext in [".csv", ".mtd"]:
+elif ext == ".csv":
     sheets_to_plot = [(file_path.stem, None)]
-
 else:
     raise ValueError(f"Unsupported file type: {ext}")
 
-# ================= FUNCTION: MAX VALUES =================
+# ================= NEW FUNCTION: MAX VALUES =================
 def print_max_values(displacement, load, label):
     max_displacement = displacement.max()
     max_load = load.max()
 
+    # Displacement at maximum load
     idx_max_load = load.idxmax()
     displacement_at_max_load = displacement.loc[idx_max_load]
 
@@ -72,48 +81,32 @@ def print_max_values(displacement, load, label):
     print(f"Maximum Load: {max_load:.5f} N")
     print(f"Displacement at Max Load: {displacement_at_max_load:.5f} mm")
 
-# ======================= PLOTTING =========================
+
+# ======================= BOTH PLOTS IN ONE WINDOW =========================
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
 for sheet_name, color in sheets_to_plot:
 
-    # -------- READ FILE --------
-    if ext in [".csv", ".mtd"]:
-        try:
-            df = pd.read_csv(
-                file_path,
-                delimiter="\t",   # try tab first
-                skiprows=skip,
-                nrows=rows,
-                header=0,
-                skipinitialspace=True,
-                on_bad_lines="skip"
-            )
-        except:
-            df = pd.read_csv(
-                file_path,
-                delim_whitespace=True,  # fallback
-                skiprows=skip,
-                nrows=rows,
-                header=0,
-                skipinitialspace=True,
-                on_bad_lines="skip"
-            )
-
-    else:  # Excel files (.xls, .xlsx)
+    if ext == ".csv":
+        df = pd.read_csv(
+            file_path,
+            skiprows=skip,
+            nrows=rows,
+            header=0,
+            skipinitialspace=True,
+            on_bad_lines="skip"
+        )
+    else:
         df = pd.read_excel(
             file_path,
             sheet_name=sheet_name,
             skiprows=skip,
             nrows=rows,
-            header=0
+            header=0,
+            engine=engine
         )
 
-    # Clean column names
     df.columns = [str(c).strip() for c in df.columns]
-
-    # DEBUG (helpful if columns mismatch)
-    print(f"\nColumns in {sheet_name}: {df.columns.tolist()}")
 
     if x_axis not in df.columns or y_axis not in df.columns:
         raise KeyError(
@@ -123,6 +116,7 @@ for sheet_name, color in sheets_to_plot:
     displacement = df[x_axis] - initial_position
     load = df[y_axis]
 
+    # ✅ CALL NEW FUNCTION HERE
     print_max_values(displacement, load, sheet_name)
 
     # -------- PLOT 1: LOAD vs DISPLACEMENT --------
@@ -137,7 +131,7 @@ for sheet_name, color in sheets_to_plot:
 
     # -------- PLOT 2: STRESS vs STRAIN --------
     strain = displacement / gauge_length_L0
-    stress = load / cross_area_A0  # MPa
+    stress = load / cross_area_A0   # MPa (N/mm^2)
 
     ax2.scatter(
         strain,
