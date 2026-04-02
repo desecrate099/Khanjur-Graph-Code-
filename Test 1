@@ -1,24 +1,22 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-import math
 
 # ----------------------------- USER SETTINGS -----------------------------
-file_path = Path(r"C:\Users\sprid\Downloads\SMAstrain.csv")
+file_path = Path(r"C:\MTL32_2020\Data\20260318 Auxetic_Circular2_18_Mar_26_15_09_42.xls")
 
 start = 10
 end = None
 
 sheet_colors = {
-    # "100um sample": "red",
-    # "Sheet2": "blue",
+    #"Sheet10": "red",
+    
 }
+
+default_color = "blue"  # used if no colors specified
 
 x_axis = "POSITION mm"
 y_axis = "LOAD N"
-
-x_label = None
-y_label = None
 
 plot_title = "Room T 100 microns"
 
@@ -28,10 +26,10 @@ tick_fontsize  = 10
 legend_fontsize = 12
 
 # -------------------- MECHANICAL CALCULATION SETTINGS --------------------
-initial_position = 64      # mm
-width  = 0.3               # mm
-thickness = 0.5            # mm
-gauge_length_L0 = 0.1      # mm
+initial_position = 12.812
+width  = 0.3
+thickness = 0.3
+gauge_length_L0 = 10
 # ------------------------------------------------------------------------
 
 # ------------------------- DO NOT TOUCH BELOW ---------------------------
@@ -42,60 +40,66 @@ if not file_path.exists():
 
 ext = file_path.suffix.lower()
 
-if start < 1:
-    raise ValueError("'start' must be >= 1")
-
 skip = start - 1
+rows = (end - start + 1) if end is not None else None
 
-if end is not None:
-    if end < start:
-        raise ValueError(f"'end' ({end}) must be >= 'start' ({start}).")
-    rows = end - start + 1
+# ================= ENGINE =================
+if ext == ".xls":
+    excel_engine = "xlrd"
+elif ext == ".xlsx":
+    excel_engine = "openpyxl"
 else:
-    rows = None
+    excel_engine = None
 
-engine = "openpyxl" if ext == ".xlsx" else "xlrd"
-
+# ================= FILE HANDLING =================
 if ext in [".xls", ".xlsx"]:
+    xl = pd.ExcelFile(file_path, engine=excel_engine)
+
     if sheet_colors:
         sheets_to_plot = list(sheet_colors.items())
+        single_color_mode = False
     else:
-        xl = pd.ExcelFile(file_path, engine=engine)
-        sheets_to_plot = [(name, None) for name in xl.sheet_names]
-elif ext == ".csv":
-    sheets_to_plot = [(file_path.stem, None)]
+        sheets_to_plot = [(name, default_color) for name in xl.sheet_names]
+        single_color_mode = True
+
+elif ext in [".csv", ".mtd"]:
+    sheets_to_plot = [(file_path.stem, default_color)]
+    single_color_mode = True
+
 else:
     raise ValueError(f"Unsupported file type: {ext}")
 
-# ================= NEW FUNCTION: MAX VALUES =================
-def print_max_values(displacement, load, label):
-    max_displacement = displacement.max()
-    max_load = load.max()
+# ================= GLOBAL STORAGE =================
+all_displacement = []
+all_load = []
 
-    # Displacement at maximum load
-    idx_max_load = load.idxmax()
-    displacement_at_max_load = displacement.loc[idx_max_load]
-
-    print(f"\n--- {label} ---")
-    print(f"Maximum Displacement: {max_displacement:.5f} mm")
-    print(f"Maximum Load: {max_load:.5f} N")
-    print(f"Displacement at Max Load: {displacement_at_max_load:.5f} mm")
-
-
-# ======================= BOTH PLOTS IN ONE WINDOW =========================
+# ======================= PLOTTING =========================
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
 for sheet_name, color in sheets_to_plot:
 
-    if ext == ".csv":
-        df = pd.read_csv(
-            file_path,
-            skiprows=skip,
-            nrows=rows,
-            header=0,
-            skipinitialspace=True,
-            on_bad_lines="skip"
-        )
+    # -------- READ FILE --------
+    if ext in [".csv", ".mtd"]:
+        try:
+            df = pd.read_csv(
+                file_path,
+                delimiter="\t",
+                skiprows=skip,
+                nrows=rows,
+                header=0,
+                skipinitialspace=True,
+                on_bad_lines="skip"
+            )
+        except:
+            df = pd.read_csv(
+                file_path,
+                delim_whitespace=True,
+                skiprows=skip,
+                nrows=rows,
+                header=0,
+                skipinitialspace=True,
+                on_bad_lines="skip"
+            )
     else:
         df = pd.read_excel(
             file_path,
@@ -103,63 +107,71 @@ for sheet_name, color in sheets_to_plot:
             skiprows=skip,
             nrows=rows,
             header=0,
-            engine=engine
+            engine=excel_engine
         )
 
+    # Clean column names
     df.columns = [str(c).strip() for c in df.columns]
 
     if x_axis not in df.columns or y_axis not in df.columns:
-        raise KeyError(
-            f"Columns not found. Available columns: {list(df.columns)}"
-        )
+        raise KeyError(f"Columns not found. Available columns: {list(df.columns)}")
 
     displacement = df[x_axis] - initial_position
     load = df[y_axis]
 
-    # ✅ CALL NEW FUNCTION HERE
-    print_max_values(displacement, load, sheet_name)
+    # Store globally
+    all_displacement.append(displacement)
+    all_load.append(load)
 
-    # -------- PLOT 1: LOAD vs DISPLACEMENT --------
-    ax1.scatter(
-        displacement,
-        load,
-        label=sheet_name,
-        color=color,
-        s=15,
-        alpha=0.8
-    )
+    # -------- MULTI-COLOR MODE --------
+    if not single_color_mode:
+        ax1.scatter(displacement, load, label=sheet_name, color=color, s=15, alpha=0.8)
 
-    # -------- PLOT 2: STRESS vs STRAIN --------
-    strain = displacement / gauge_length_L0
-    stress = load / cross_area_A0   # MPa (N/mm^2)
+        strain = displacement / gauge_length_L0
+        stress = load / cross_area_A0
 
-    ax2.scatter(
-        strain,
-        stress,
-        label=sheet_name,
-        color=color,
-        s=15,
-        alpha=0.8
-    )
+        ax2.scatter(strain, stress, label=sheet_name, color=color, s=15, alpha=0.8)
 
-# ---------------- FORMAT LEFT PLOT ----------------
+# ================= SINGLE COLOR MODE =================
+if single_color_mode:
+    # 🔥 FIX: reset index so idxmax works properly
+    all_displacement = pd.concat(all_displacement, ignore_index=True)
+    all_load = pd.concat(all_load, ignore_index=True)
+
+    strain = all_displacement / gauge_length_L0
+    stress = all_load / cross_area_A0
+
+    # Plot once
+    ax1.scatter(all_displacement, all_load, color=default_color, s=15, alpha=0.8)
+    ax2.scatter(strain, stress, color=default_color, s=15, alpha=0.8)
+
+    # -------- GLOBAL MAX --------
+    max_load = all_load.max()
+    idx = all_load.idxmax()
+    disp_at_max = all_displacement.loc[idx]
+
+    print("\n=== GLOBAL MAX ACROSS ALL SHEETS ===")
+    print(f"Maximum Load: {max_load:.5f} N")
+    print(f"Displacement at Max Load: {disp_at_max:.5f} mm")
+
+# ---------------- FORMAT ----------------
 ax1.set_xlabel("Displacement (mm)", fontsize=label_fontsize)
 ax1.set_ylabel("Load (N)", fontsize=label_fontsize)
 ax1.set_title("Load vs Displacement", fontsize=title_fontsize)
 ax1.tick_params(axis='both', labelsize=tick_fontsize)
 ax1.grid(True)
 
-# ---------------- FORMAT RIGHT PLOT ----------------
 ax2.set_xlabel("Strain (mm/mm)", fontsize=label_fontsize)
 ax2.set_ylabel("Stress (MPa)", fontsize=label_fontsize)
 ax2.set_title("Stress vs Strain", fontsize=title_fontsize)
 ax2.tick_params(axis='both', labelsize=tick_fontsize)
 ax2.grid(True)
 
-# Shared Legend
-handles, labels = ax1.get_legend_handles_labels()
-if handles:
-    fig.legend(handles, labels, fontsize=legend_fontsize, loc="upper center")
+# Legend only if multi-color mode
+if not single_color_mode:
+    handles, labels = ax1.get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, fontsize=legend_fontsize, loc="upper center")
 
 plt.tight_layout()
 plt.show()
