@@ -6,51 +6,55 @@ from openpyxl.drawing.image import Image as XLImage
 import tempfile
 
 # ============================= USER SETTINGS =============================
-file_path = Path(r"C:\Users\sprid\Downloads\20260318 Auxetic_Circular2_18_Mar_26_15_09_42.xls")
+file_path = Path(r"C:\Users\sprid\Downloads\20260318 Auxetic_Circular_18_Mar_26_12_04_24.xls")
 
-# Name + title that will appear at top of Summary sheet
+# Report info
 report_name = "Andrew Chen"
 report_title = "Auxetic Compression Test Summary"
 
-# Data row range
+# ---------------------- TESTING CONDITIONS INPUT ------------------------
+test_temperature = "Room Temperature"
+test_amperage = "N/A"
+test_voltage = "N/A"
+
+# ----------------------- SAMPLE INFORMATION INPUT -----------------------
+sample_length = 10.0       # mm
+sample_width = 0.3         # mm
+sample_thickness = 0.3     # mm
+
+# --------------------------- DATA SETTINGS ------------------------------
 start = 10
 end = None
 
-# If blank, all sheets are plotted in default_color
 sheet_colors = {
     # "Sheet1": "red",
     # "Sheet2": "green",
 }
-
 default_color = "blue"
 
-# Column names from your file
 x_axis = "POSITION mm"
 y_axis = "LOAD N"
 
-# Plot formatting
+# -------------------------- PLOT SETTINGS -------------------------------
 label_fontsize = 20
 title_fontsize = 20
 tick_fontsize = 10
 legend_fontsize = 12
 
-# ==================== MECHANICAL CALCULATION SETTINGS ====================
+# -------------------- MECHANICAL CALCULATION SETTINGS -------------------
 initial_position = 12.812
-width = 0.3
-thickness = 0.3
-gauge_length_L0 = 10
+gauge_length_L0 = 10.0  # mm
 
-# =========================== OUTPUT SETTINGS =============================
+# --------------------------- OUTPUT SETTINGS ----------------------------
 output_excel = file_path.with_name(file_path.stem + "_processed.xlsx")
 
-# ============================ PREP WORK ==================================
-cross_area_A0 = width * thickness
+# ============================ PREP WORK =================================
+cross_area_A0 = sample_width * sample_thickness
 
 if not file_path.exists():
     raise FileNotFoundError(f"File not found: {file_path}")
 
 ext = file_path.suffix.lower()
-
 skip = start - 1
 rows = (end - start + 1) if end is not None else None
 
@@ -61,7 +65,7 @@ elif ext == ".xlsx":
 else:
     excel_engine = None
 
-# ========================= DETERMINE FILE TYPE ===========================
+# ========================= DETERMINE FILE TYPE ==========================
 if ext in [".xls", ".xlsx"]:
     xl = pd.ExcelFile(file_path, engine=excel_engine)
 
@@ -79,13 +83,13 @@ elif ext in [".csv", ".mtd"]:
 else:
     raise ValueError(f"Unsupported file type: {ext}")
 
-# ========================= STORAGE VARIABLES =============================
+# ========================= STORAGE VARIABLES ============================
 all_displacement = []
 all_load = []
 all_summary_rows = []
 combined_export_frames = []
 
-# ============================== PLOTTING =================================
+# ============================== PLOTTING ================================
 fig1, ax1 = plt.subplots(figsize=(8, 6))
 fig2, ax2 = plt.subplots(figsize=(8, 6))
 
@@ -123,7 +127,7 @@ for sheet_name, color in sheets_to_plot:
             engine=excel_engine
         )
 
-    # Clean columns
+    # Clean column names
     df.columns = [str(c).strip() for c in df.columns]
 
     if x_axis not in df.columns or y_axis not in df.columns:
@@ -131,7 +135,7 @@ for sheet_name, color in sheets_to_plot:
             f"Columns not found in '{sheet_name}'. Available columns: {list(df.columns)}"
         )
 
-    # Convert to numeric
+    # Convert to numeric and remove bad rows
     df[x_axis] = pd.to_numeric(df[x_axis], errors="coerce")
     df[y_axis] = pd.to_numeric(df[y_axis], errors="coerce")
     df = df.dropna(subset=[x_axis, y_axis]).reset_index(drop=True)
@@ -178,7 +182,7 @@ for sheet_name, color in sheets_to_plot:
     ax1.scatter(displacement, load, label=label_name, color=color, s=15, alpha=0.8)
     ax2.scatter(strain, stress, label=label_name, color=color, s=15, alpha=0.8)
 
-# =========================== GLOBAL SUMMARY ==============================
+# =========================== GLOBAL SUMMARY =============================
 all_displacement = pd.concat(all_displacement, ignore_index=True)
 all_load = pd.concat(all_load, ignore_index=True)
 
@@ -211,7 +215,7 @@ print(f"Displacement at Max Load: {global_disp_at_max_load:.5f} mm")
 print(f"Maximum Stress: {global_max_stress:.5f} MPa")
 print(f"Maximum Strain: {global_max_strain:.5f}")
 
-# ============================ FORMAT PLOTS ===============================
+# ============================ FORMAT PLOTS ==============================
 ax1.set_xlabel("Displacement (mm)", fontsize=label_fontsize)
 ax1.set_ylabel("Load (N)", fontsize=label_fontsize)
 ax1.set_title("Load vs Displacement", fontsize=title_fontsize)
@@ -231,7 +235,7 @@ if not single_color_mode:
 fig1.tight_layout()
 fig2.tight_layout()
 
-# ========================== SAVE PLOT IMAGES =============================
+# ========================== SAVE PLOT IMAGES ============================
 temp_dir = Path(tempfile.gettempdir())
 plot1_path = temp_dir / "load_vs_displacement.png"
 plot2_path = temp_dir / "stress_vs_strain.png"
@@ -239,10 +243,10 @@ plot2_path = temp_dir / "stress_vs_strain.png"
 fig1.savefig(plot1_path, dpi=200, bbox_inches="tight")
 fig2.savefig(plot2_path, dpi=200, bbox_inches="tight")
 
-# ============================ WRITE TO EXCEL =============================
+# ============================ WRITE TO EXCEL ============================
 with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
     combined_data_df.to_excel(writer, sheet_name="Data", index=False, startrow=0)
-    summary_df.to_excel(writer, sheet_name="Summary", index=False, startrow=4)
+    summary_df.to_excel(writer, sheet_name="Summary", index=False, startrow=16)
 
     workbook = writer.book
     ws_data = workbook["Data"]
@@ -257,8 +261,8 @@ with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
     for cell in ws_data[1]:
         cell.font = bold_font
 
-    # Summary table header is row 5 because startrow=4
-    for cell in ws_summary[5]:
+    # Summary table header is row 17 because startrow=16
+    for cell in ws_summary[17]:
         cell.font = bold_font
 
     # ================= TOP OF SUMMARY PAGE =================
@@ -268,10 +272,45 @@ with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
     ws_summary["A2"] = f"Prepared by: {report_name}"
     ws_summary["A2"].font = medium_bold_font
 
-    ws_summary["A4"] = "Summary Data"
+    # ================= TESTING CONDITIONS =================
+    ws_summary["A4"] = "Testing Conditions"
     ws_summary["A4"].font = medium_bold_font
 
-    # ================= IMPORTANT RESULTS ON RIGHT =================
+    ws_summary["A5"] = "Temperature"
+    ws_summary["B5"] = test_temperature
+
+    ws_summary["A6"] = "Amperage"
+    ws_summary["B6"] = test_amperage
+
+    ws_summary["A7"] = "Voltage"
+    ws_summary["B7"] = test_voltage
+
+    for row in range(5, 8):
+        ws_summary[f"A{row}"].font = bold_font
+
+    # ================= SAMPLE INFORMATION =================
+    ws_summary["D4"] = "Sample Information"
+    ws_summary["D4"].font = medium_bold_font
+
+    ws_summary["D5"] = "Length (mm)"
+    ws_summary["E5"] = sample_length
+
+    ws_summary["D6"] = "Width (mm)"
+    ws_summary["E6"] = sample_width
+
+    ws_summary["D7"] = "Thickness / Height (mm)"
+    ws_summary["E7"] = sample_thickness
+
+    ws_summary["D8"] = "Gauge Length L0 (mm)"
+    ws_summary["E8"] = gauge_length_L0
+
+    ws_summary["D9"] = "Cross-sectional Area A0 (mm^2)"
+    ws_summary["E9"] = cross_area_A0
+
+    for row in range(5, 10):
+        ws_summary[f"D{row}"].font = bold_font
+
+    # ================= IMPORTANT RESULTS =================
     ws_summary["J1"] = "Important Results"
     ws_summary["J1"].font = big_bold_font
 
@@ -293,6 +332,10 @@ with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
     for row in range(3, 8):
         ws_summary[f"J{row}"].font = bold_font
 
+    # ================= SUMMARY LABEL =================
+    ws_summary["A16"] = "Summary Data"
+    ws_summary["A16"].font = medium_bold_font
+
     # Column widths
     ws_data.column_dimensions["A"].width = 18
     ws_data.column_dimensions["B"].width = 20
@@ -300,12 +343,10 @@ with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
     ws_data.column_dimensions["D"].width = 18
     ws_data.column_dimensions["E"].width = 15
 
-    ws_summary.column_dimensions["A"].width = 20
-    ws_summary.column_dimensions["B"].width = 24
-    ws_summary.column_dimensions["C"].width = 22
+    ws_summary.column_dimensions["A"].width = 22
+    ws_summary.column_dimensions["B"].width = 20
     ws_summary.column_dimensions["D"].width = 28
     ws_summary.column_dimensions["E"].width = 20
-    ws_summary.column_dimensions["F"].width = 20
     ws_summary.column_dimensions["J"].width = 30
     ws_summary.column_dimensions["K"].width = 20
 
