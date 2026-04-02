@@ -1,19 +1,22 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Font
+import tempfile
 
 # ----------------------------- USER SETTINGS -----------------------------
-file_path = Path(r"C:\MTL32_2020\Data\20260318 Auxetic_Circular2_18_Mar_26_15_09_42.xls")
+file_path = Path(r"C:\Users\sprid\Downloads\20260318 Auxetic_Circular2_18_Mar_26_15_09_42.xls")
 
 start = 10
 end = None
 
 sheet_colors = {
-    #"Sheet10": "red",
-    
+    # "Sheet10": "red",
 }
 
-default_color = "blue"  # used if no colors specified
+default_color = "blue"
 
 x_axis = "POSITION mm"
 y_axis = "LOAD N"
@@ -22,17 +25,19 @@ plot_title = "Room T 100 microns"
 
 label_fontsize = 20
 title_fontsize = 20
-tick_fontsize  = 10
+tick_fontsize = 10
 legend_fontsize = 12
 
 # -------------------- MECHANICAL CALCULATION SETTINGS --------------------
 initial_position = 12.812
-width  = 0.3
+width = 0.3
 thickness = 0.3
 gauge_length_L0 = 10
-# ------------------------------------------------------------------------
 
-# ------------------------- DO NOT TOUCH BELOW ---------------------------
+# ---------------------- OUTPUT SETTINGS ----------------------------------
+output_excel = file_path.with_name(file_path.stem + "_processed.xlsx")
+
+# ------------------------------------------------------------------------
 cross_area_A0 = width * thickness
 
 if not file_path.exists():
@@ -72,9 +77,12 @@ else:
 # ================= GLOBAL STORAGE =================
 all_displacement = []
 all_load = []
+all_summary_rows = []
+combined_export_frames = []
 
 # ======================= PLOTTING =========================
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+fig1, ax1 = plt.subplots(figsize=(8, 6))
+fig2, ax2 = plt.subplots(figsize=(8, 6))
 
 for sheet_name, color in sheets_to_plot:
 
@@ -90,7 +98,7 @@ for sheet_name, color in sheets_to_plot:
                 skipinitialspace=True,
                 on_bad_lines="skip"
             )
-        except:
+        except Exception:
             df = pd.read_csv(
                 file_path,
                 delim_whitespace=True,
@@ -110,51 +118,91 @@ for sheet_name, color in sheets_to_plot:
             engine=excel_engine
         )
 
-    # Clean column names
     df.columns = [str(c).strip() for c in df.columns]
 
     if x_axis not in df.columns or y_axis not in df.columns:
-        raise KeyError(f"Columns not found. Available columns: {list(df.columns)}")
+        raise KeyError(f"Columns not found in {sheet_name}. Available columns: {list(df.columns)}")
+
+    # Convert to numeric and remove bad rows
+    df[x_axis] = pd.to_numeric(df[x_axis], errors="coerce")
+    df[y_axis] = pd.to_numeric(df[y_axis], errors="coerce")
+    df = df.dropna(subset=[x_axis, y_axis]).reset_index(drop=True)
 
     displacement = df[x_axis] - initial_position
     load = df[y_axis]
+    strain = displacement / gauge_length_L0
+    stress = load / cross_area_A0
+
+    export_df = pd.DataFrame({
+        "Sheet": sheet_name,
+        "Displacement (mm)": displacement,
+        "Load (N)": load,
+        "Strain (mm/mm)": strain,
+        "Stress (MPa)": stress
+    })
+
+    combined_export_frames.append(export_df)
 
     # Store globally
     all_displacement.append(displacement)
     all_load.append(load)
 
-    # -------- MULTI-COLOR MODE --------
-    if not single_color_mode:
-        ax1.scatter(displacement, load, label=sheet_name, color=color, s=15, alpha=0.8)
+    # Per-sheet summary
+    max_load = load.max()
+    max_disp = displacement.max()
+    idx_max_load = load.idxmax()
+    disp_at_max_load = displacement.loc[idx_max_load]
+    max_stress = stress.max()
+    max_strain = strain.max()
 
-        strain = displacement / gauge_length_L0
-        stress = load / cross_area_A0
+    all_summary_rows.append({
+        "Sheet": sheet_name,
+        "Max Displacement (mm)": max_disp,
+        "Max Load (N)": max_load,
+        "Displacement at Max Load (mm)": disp_at_max_load,
+        "Max Strain (mm/mm)": max_strain,
+        "Max Stress (MPa)": max_stress
+    })
 
-        ax2.scatter(strain, stress, label=sheet_name, color=color, s=15, alpha=0.8)
+    # Plot
+    label_name = sheet_name if not single_color_mode else None
+    ax1.scatter(displacement, load, label=label_name, color=color, s=15, alpha=0.8)
+    ax2.scatter(strain, stress, label=label_name, color=color, s=15, alpha=0.8)
 
-# ================= SINGLE COLOR MODE =================
-if single_color_mode:
-    # 🔥 FIX: reset index so idxmax works properly
-    all_displacement = pd.concat(all_displacement, ignore_index=True)
-    all_load = pd.concat(all_load, ignore_index=True)
+# ================= COMBINE ALL DATA =================
+all_displacement = pd.concat(all_displacement, ignore_index=True)
+all_load = pd.concat(all_load, ignore_index=True)
 
-    strain = all_displacement / gauge_length_L0
-    stress = all_load / cross_area_A0
+global_strain = all_displacement / gauge_length_L0
+global_stress = all_load / cross_area_A0
 
-    # Plot once
-    ax1.scatter(all_displacement, all_load, color=default_color, s=15, alpha=0.8)
-    ax2.scatter(strain, stress, color=default_color, s=15, alpha=0.8)
+global_max_load = all_load.max()
+global_max_disp = all_displacement.max()
+global_idx = all_load.idxmax()
+global_disp_at_max_load = all_displacement.loc[global_idx]
+global_max_strain = global_strain.max()
+global_max_stress = global_stress.max()
 
-    # -------- GLOBAL MAX --------
-    max_load = all_load.max()
-    idx = all_load.idxmax()
-    disp_at_max = all_displacement.loc[idx]
+all_summary_rows.append({
+    "Sheet": "GLOBAL",
+    "Max Displacement (mm)": global_max_disp,
+    "Max Load (N)": global_max_load,
+    "Displacement at Max Load (mm)": global_disp_at_max_load,
+    "Max Strain (mm/mm)": global_max_strain,
+    "Max Stress (MPa)": global_max_stress
+})
 
-    print("\n=== GLOBAL MAX ACROSS ALL SHEETS ===")
-    print(f"Maximum Load: {max_load:.5f} N")
-    print(f"Displacement at Max Load: {disp_at_max:.5f} mm")
+summary_df = pd.DataFrame(all_summary_rows)
+combined_data_df = pd.concat(combined_export_frames, ignore_index=True)
 
-# ---------------- FORMAT ----------------
+print("\n=== GLOBAL MAX ACROSS ALL SHEETS ===")
+print(f"Maximum Load: {global_max_load:.5f} N")
+print(f"Displacement at Max Load: {global_disp_at_max_load:.5f} mm")
+print(f"Maximum Displacement: {global_max_disp:.5f} mm")
+print(f"Maximum Stress: {global_max_stress:.5f} MPa")
+print(f"Maximum Strain: {global_max_strain:.5f}")
+
+# ---------------- FORMAT PLOTS ----------------
 ax1.set_xlabel("Displacement (mm)", fontsize=label_fontsize)
 ax1.set_ylabel("Load (N)", fontsize=label_fontsize)
 ax1.set_title("Load vs Displacement", fontsize=title_fontsize)
@@ -167,11 +215,68 @@ ax2.set_title("Stress vs Strain", fontsize=title_fontsize)
 ax2.tick_params(axis='both', labelsize=tick_fontsize)
 ax2.grid(True)
 
-# Legend only if multi-color mode
 if not single_color_mode:
-    handles, labels = ax1.get_legend_handles_labels()
-    if handles:
-        fig.legend(handles, labels, fontsize=legend_fontsize, loc="upper center")
+    ax1.legend(fontsize=legend_fontsize)
+    ax2.legend(fontsize=legend_fontsize)
 
-plt.tight_layout()
+fig1.tight_layout()
+fig2.tight_layout()
+
+# ================= SAVE PLOTS AS TEMP IMAGES =================
+temp_dir = Path(tempfile.gettempdir())
+plot1_path = temp_dir / "load_vs_displacement.png"
+plot2_path = temp_dir / "stress_vs_strain.png"
+
+fig1.savefig(plot1_path, dpi=200, bbox_inches="tight")
+fig2.savefig(plot2_path, dpi=200, bbox_inches="tight")
+
 plt.show()
+
+# ================= WRITE TO EXCEL =================
+with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+    combined_data_df.to_excel(writer, sheet_name="Data", index=False)
+    summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+    workbook = writer.book
+    ws_summary = workbook["Summary"]
+    ws_data = workbook["Data"]
+
+    # Header formatting
+    bold_font = Font(bold=True)
+    for cell in ws_summary[1]:
+        cell.font = bold_font
+    for cell in ws_data[1]:
+        cell.font = bold_font
+
+    # Add summary title text on right side
+    ws_summary["J2"] = "Important Results"
+    ws_summary["J2"].font = Font(bold=True, size=14)
+
+    ws_summary["J4"] = "Global Max Load (N)"
+    ws_summary["K4"] = global_max_load
+
+    ws_summary["J5"] = "Global Max Displacement (mm)"
+    ws_summary["K5"] = global_max_disp
+
+    ws_summary["J6"] = "Displacement at Max Load (mm)"
+    ws_summary["K6"] = global_disp_at_max_load
+
+    ws_summary["J7"] = "Global Max Stress (MPa)"
+    ws_summary["K7"] = global_max_stress
+
+    ws_summary["J8"] = "Global Max Strain (mm/mm)"
+    ws_summary["K8"] = global_max_strain
+
+    # Insert images to the right
+    img1 = XLImage(str(plot1_path))
+    img2 = XLImage(str(plot2_path))
+
+    img1.width = 600
+    img1.height = 400
+    img2.width = 600
+    img2.height = 400
+
+    ws_summary.add_image(img1, "J10")
+    ws_summary.add_image(img2, "J32")
+
+print(f"\nExcel file created successfully:\n{output_excel}")
