@@ -1,368 +1,446 @@
+import math
+import tempfile
+from pathlib import Path
+
 import pandas as pd
 import matplotlib.pyplot as plt
-from pathlib import Path
-from openpyxl.styles import Font
-from openpyxl.drawing.image import Image as XLImage
-import tempfile
 
-# ============================= USER SETTINGS =============================
-file_path = Path(r"C:\Users\sprid\Downloads\20260318 Auxetic_Circular_18_Mar_26_12_04_24.xls")
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
-# Report info
-report_name = "Andrew Chen"
-report_title = "Auxetic Compression Test Summary"
 
-# ---------------------- TESTING CONDITIONS INPUT ------------------------
-test_temperature = "Room Temperature"
-test_amperage = "N/A"
-test_voltage = "N/A"
+# ============================================================
+# USER SETTINGS
+# ============================================================
 
-# ----------------------- SAMPLE INFORMATION INPUT -----------------------
-sample_length = 10.0       # mm
-sample_width = 0.3         # mm
-sample_thickness = 0.3     # mm
+file_path = Path(r"C:\Users\sprid\Downloads\20260318_Auxetic_Circular_18_Mar_26_12_04_24.xls")
 
-# --------------------------- DATA SETTINGS ------------------------------
-start = 10
-end = None
+# Output
+output_docx = file_path.with_name(file_path.stem + "_report.docx")
 
-sheet_colors = {
-    # "Sheet1": "red",
-    # "Sheet2": "green",
-}
-default_color = "blue"
+# These are Excel row numbers, not Python indexes
+metadata_header_row_excel = 1   # row with metadata labels
+metadata_value_row_excel = 2    # row with metadata values
+raw_data_header_row_excel = 12  # row with raw-data headers like Time sec, LOAD N, POSITION mm
+sheet_name = 0                  # first sheet
 
-x_axis = "POSITION mm"
-y_axis = "LOAD N"
+# Raw data columns
+x_axis_col = "POSITION mm"
+y_axis_col = "LOAD N"
 
-# -------------------------- PLOT SETTINGS -------------------------------
-label_fontsize = 20
-title_fontsize = 20
-tick_fontsize = 10
-legend_fontsize = 12
+# Displacement calculation
+initial_position = 12.812  # mm
 
-# -------------------- MECHANICAL CALCULATION SETTINGS -------------------
-initial_position = 12.812
-gauge_length_L0 = 10.0  # mm
+# Report settings
+report_title = "Test Report"
+report_subtitle = "(automatic from code locally with the date of report plotting)"
+prepared_by = "Andrew Chen"
 
-# --------------------------- OUTPUT SETTINGS ----------------------------
-output_excel = file_path.with_name(file_path.stem + "_processed.xlsx")
+# Fallback defaults
+default_temperature = "N/A"
+default_current = None
+default_voltage = None
+default_on_time = None
+default_off_time = None
 
-# ============================ PREP WORK =================================
-cross_area_A0 = sample_width * sample_thickness
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def get_excel_engine(path: Path):
+    ext = path.suffix.lower()
+    if ext == ".xls":
+        return "xlrd"
+    elif ext == ".xlsx":
+        return "openpyxl"
+    else:
+        raise ValueError(f"Unsupported Excel type: {ext}")
+
+
+def safe_float(val):
+    try:
+        if pd.isna(val) or str(val).strip() == "":
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+
+def clean_string(val):
+    if pd.isna(val):
+        return ""
+    return str(val).strip()
+
+
+def normalize_key(s: str) -> str:
+    return " ".join(str(s).replace("\n", " ").replace("\r", " ").split()).strip().lower()
+
+
+def set_cell_shading(cell, fill):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:fill"), fill)
+    tc_pr.append(shd)
+
+
+def set_cell_text(cell, text, bold=False, font_size=9, align="left"):
+    cell.text = ""
+    p = cell.paragraphs[0]
+
+    if align == "center":
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    elif align == "right":
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    else:
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    if text is None or str(text).strip() == "":
+        text = "N/A"
+
+    run = p.add_run(str(text))
+    run.bold = bold
+    run.font.size = Pt(font_size)
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
+
+def format_number(val, decimals=1):
+    if val is None:
+        return "N/A"
+    try:
+        if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+            return "N/A"
+    except Exception:
+        pass
+    return f"{val:.{decimals}f}"
+
+
+def build_metadata_dict(header_values, data_values):
+    meta = {}
+    for h, v in zip(header_values, data_values):
+        header = clean_string(h)
+        if header:
+            meta[header] = v
+    return meta
+
+
+def lookup_meta(meta, possible_names, default="N/A"):
+    normalized = {normalize_key(k): v for k, v in meta.items()}
+    for name in possible_names:
+        key = normalize_key(name)
+        if key in normalized:
+            val = normalized[key]
+            if pd.isna(val) or str(val).strip() == "":
+                return default
+            return val
+    return default
+
+
+def add_title_block(document):
+    p = document.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run(report_title)
+    r.bold = True
+    r.font.size = Pt(16)
+
+    p2 = document.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r2 = p2.add_run(report_subtitle)
+    r2.italic = True
+    r2.font.size = Pt(10)
+
+    p3 = document.add_paragraph()
+    p3.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    r3 = p3.add_run(f"Prepared by: {prepared_by}")
+    r3.bold = True
+    r3.font.size = Pt(10)
+
+
+def plot_and_save(displacement, load, strain, stress):
+    temp_dir = Path(tempfile.gettempdir())
+    plot1_path = temp_dir / "load_vs_displacement_report.png"
+    plot2_path = temp_dir / "stress_vs_strain_report.png"
+
+    plt.figure(figsize=(5.8, 4.5))
+    plt.plot(displacement, load)
+    plt.xlabel("Displacement (mm)")
+    plt.ylabel("Load (N)")
+    plt.title("Load vs Displacement")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(plot1_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+    plt.figure(figsize=(5.8, 4.5))
+    plt.plot(strain, stress)
+    plt.xlabel("Strain (mm/mm)")
+    plt.ylabel("Stress (MPa)")
+    plt.title("Stress vs Strain")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(plot2_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+    return plot1_path, plot2_path
+
+
+# ============================================================
+# READ EXCEL
+# ============================================================
 
 if not file_path.exists():
     raise FileNotFoundError(f"File not found: {file_path}")
 
-ext = file_path.suffix.lower()
-skip = start - 1
-rows = (end - start + 1) if end is not None else None
-
-if ext == ".xls":
-    excel_engine = "xlrd"
-elif ext == ".xlsx":
-    excel_engine = "openpyxl"
-else:
-    excel_engine = None
-
-# ========================= DETERMINE FILE TYPE ==========================
-if ext in [".xls", ".xlsx"]:
-    xl = pd.ExcelFile(file_path, engine=excel_engine)
-
-    if sheet_colors:
-        sheets_to_plot = list(sheet_colors.items())
-        single_color_mode = False
-    else:
-        sheets_to_plot = [(name, default_color) for name in xl.sheet_names]
-        single_color_mode = True
-
-elif ext in [".csv", ".mtd"]:
-    sheets_to_plot = [(file_path.stem, default_color)]
-    single_color_mode = True
-
-else:
-    raise ValueError(f"Unsupported file type: {ext}")
-
-# ========================= STORAGE VARIABLES ============================
-all_displacement = []
-all_load = []
-all_summary_rows = []
-combined_export_frames = []
-
-# ============================== PLOTTING ================================
-fig1, ax1 = plt.subplots(figsize=(8, 6))
-fig2, ax2 = plt.subplots(figsize=(8, 6))
-
-for sheet_name, color in sheets_to_plot:
-
-    # ---------------- READ FILE ----------------
-    if ext in [".csv", ".mtd"]:
-        try:
-            df = pd.read_csv(
-                file_path,
-                delimiter="\t",
-                skiprows=skip,
-                nrows=rows,
-                header=0,
-                skipinitialspace=True,
-                on_bad_lines="skip"
-            )
-        except Exception:
-            df = pd.read_csv(
-                file_path,
-                delim_whitespace=True,
-                skiprows=skip,
-                nrows=rows,
-                header=0,
-                skipinitialspace=True,
-                on_bad_lines="skip"
-            )
-    else:
-        df = pd.read_excel(
-            file_path,
-            sheet_name=sheet_name,
-            skiprows=skip,
-            nrows=rows,
-            header=0,
-            engine=excel_engine
-        )
-
-    # Clean column names
-    df.columns = [str(c).strip() for c in df.columns]
-
-    if x_axis not in df.columns or y_axis not in df.columns:
-        raise KeyError(
-            f"Columns not found in '{sheet_name}'. Available columns: {list(df.columns)}"
-        )
-
-    # Convert to numeric and remove bad rows
-    df[x_axis] = pd.to_numeric(df[x_axis], errors="coerce")
-    df[y_axis] = pd.to_numeric(df[y_axis], errors="coerce")
-    df = df.dropna(subset=[x_axis, y_axis]).reset_index(drop=True)
-
-    # Calculations
-    displacement = df[x_axis] - initial_position
-    load = df[y_axis]
-    strain = displacement / gauge_length_L0
-    stress = load / cross_area_A0
-
-    # Store export data
-    export_df = pd.DataFrame({
-        "Sheet": sheet_name,
-        "Displacement (mm)": displacement,
-        "Load (N)": load,
-        "Strain (mm/mm)": strain,
-        "Stress (MPa)": stress
-    })
-    combined_export_frames.append(export_df)
-
-    # Store global data
-    all_displacement.append(displacement)
-    all_load.append(load)
-
-    # Per-sheet summary
-    max_load = load.max()
-    max_disp = displacement.max()
-    idx_max_load = load.idxmax()
-    disp_at_max_load = displacement.loc[idx_max_load]
-    max_stress = stress.max()
-    max_strain = strain.max()
-
-    all_summary_rows.append({
-        "Sheet": sheet_name,
-        "Max Displacement (mm)": max_disp,
-        "Max Load (N)": max_load,
-        "Displacement at Max Load (mm)": disp_at_max_load,
-        "Max Strain (mm/mm)": max_strain,
-        "Max Stress (MPa)": max_stress
-    })
-
-    # Plot
-    label_name = sheet_name if not single_color_mode else None
-    ax1.scatter(displacement, load, label=label_name, color=color, s=15, alpha=0.8)
-    ax2.scatter(strain, stress, label=label_name, color=color, s=15, alpha=0.8)
-
-# =========================== GLOBAL SUMMARY =============================
-all_displacement = pd.concat(all_displacement, ignore_index=True)
-all_load = pd.concat(all_load, ignore_index=True)
-
-global_strain = all_displacement / gauge_length_L0
-global_stress = all_load / cross_area_A0
-
-global_max_load = all_load.max()
-global_max_disp = all_displacement.max()
-global_idx = all_load.idxmax()
-global_disp_at_max_load = all_displacement.loc[global_idx]
-global_max_strain = global_strain.max()
-global_max_stress = global_stress.max()
-
-all_summary_rows.append({
-    "Sheet": "GLOBAL",
-    "Max Displacement (mm)": global_max_disp,
-    "Max Load (N)": global_max_load,
-    "Displacement at Max Load (mm)": global_disp_at_max_load,
-    "Max Strain (mm/mm)": global_max_strain,
-    "Max Stress (MPa)": global_max_stress
-})
-
-summary_df = pd.DataFrame(all_summary_rows)
-combined_data_df = pd.concat(combined_export_frames, ignore_index=True)
-
-print("\n=== GLOBAL MAX ACROSS ALL SHEETS ===")
-print(f"Maximum Load: {global_max_load:.5f} N")
-print(f"Maximum Displacement: {global_max_disp:.5f} mm")
-print(f"Displacement at Max Load: {global_disp_at_max_load:.5f} mm")
-print(f"Maximum Stress: {global_max_stress:.5f} MPa")
-print(f"Maximum Strain: {global_max_strain:.5f}")
-
-# ============================ FORMAT PLOTS ==============================
-ax1.set_xlabel("Displacement (mm)", fontsize=label_fontsize)
-ax1.set_ylabel("Load (N)", fontsize=label_fontsize)
-ax1.set_title("Load vs Displacement", fontsize=title_fontsize)
-ax1.tick_params(axis="both", labelsize=tick_fontsize)
-ax1.grid(True)
-
-ax2.set_xlabel("Strain (mm/mm)", fontsize=label_fontsize)
-ax2.set_ylabel("Stress (MPa)", fontsize=label_fontsize)
-ax2.set_title("Stress vs Strain", fontsize=title_fontsize)
-ax2.tick_params(axis="both", labelsize=tick_fontsize)
-ax2.grid(True)
-
-if not single_color_mode:
-    ax1.legend(fontsize=legend_fontsize)
-    ax2.legend(fontsize=legend_fontsize)
-
-fig1.tight_layout()
-fig2.tight_layout()
-
-# ========================== SAVE PLOT IMAGES ============================
-temp_dir = Path(tempfile.gettempdir())
-plot1_path = temp_dir / "load_vs_displacement.png"
-plot2_path = temp_dir / "stress_vs_strain.png"
-
-fig1.savefig(plot1_path, dpi=200, bbox_inches="tight")
-fig2.savefig(plot2_path, dpi=200, bbox_inches="tight")
-
-# ============================ WRITE TO EXCEL ============================
-with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-    combined_data_df.to_excel(writer, sheet_name="Data", index=False, startrow=0)
-    summary_df.to_excel(writer, sheet_name="Summary", index=False, startrow=16)
-
-    workbook = writer.book
-    ws_data = workbook["Data"]
-    ws_summary = workbook["Summary"]
-
-    # Fonts
-    bold_font = Font(bold=True)
-    big_bold_font = Font(bold=True, size=16)
-    medium_bold_font = Font(bold=True, size=12)
-
-    # Data sheet header bold
-    for cell in ws_data[1]:
-        cell.font = bold_font
-
-    # Summary table header is row 17 because startrow=16
-    for cell in ws_summary[17]:
-        cell.font = bold_font
-
-    # ================= TOP OF SUMMARY PAGE =================
-    ws_summary["A1"] = report_title
-    ws_summary["A1"].font = big_bold_font
-
-    ws_summary["A2"] = f"Prepared by: {report_name}"
-    ws_summary["A2"].font = medium_bold_font
-
-    # ================= TESTING CONDITIONS =================
-    ws_summary["A4"] = "Testing Conditions"
-    ws_summary["A4"].font = medium_bold_font
-
-    ws_summary["A5"] = "Temperature"
-    ws_summary["B5"] = test_temperature
-
-    ws_summary["A6"] = "Amperage"
-    ws_summary["B6"] = test_amperage
-
-    ws_summary["A7"] = "Voltage"
-    ws_summary["B7"] = test_voltage
-
-    for row in range(5, 8):
-        ws_summary[f"A{row}"].font = bold_font
-
-    # ================= SAMPLE INFORMATION =================
-    ws_summary["D4"] = "Sample Information"
-    ws_summary["D4"].font = medium_bold_font
-
-    ws_summary["D5"] = "Length (mm)"
-    ws_summary["E5"] = sample_length
-
-    ws_summary["D6"] = "Width (mm)"
-    ws_summary["E6"] = sample_width
-
-    ws_summary["D7"] = "Thickness / Height (mm)"
-    ws_summary["E7"] = sample_thickness
-
-    ws_summary["D8"] = "Gauge Length L0 (mm)"
-    ws_summary["E8"] = gauge_length_L0
-
-    ws_summary["D9"] = "Cross-sectional Area A0 (mm^2)"
-    ws_summary["E9"] = cross_area_A0
-
-    for row in range(5, 10):
-        ws_summary[f"D{row}"].font = bold_font
-
-    # ================= IMPORTANT RESULTS =================
-    ws_summary["J1"] = "Important Results"
-    ws_summary["J1"].font = big_bold_font
-
-    ws_summary["J3"] = "Global Max Load (N)"
-    ws_summary["K3"] = global_max_load
-
-    ws_summary["J4"] = "Global Max Displacement (mm)"
-    ws_summary["K4"] = global_max_disp
-
-    ws_summary["J5"] = "Displacement at Max Load (mm)"
-    ws_summary["K5"] = global_disp_at_max_load
-
-    ws_summary["J6"] = "Global Max Stress (MPa)"
-    ws_summary["K6"] = global_max_stress
-
-    ws_summary["J7"] = "Global Max Strain (mm/mm)"
-    ws_summary["K7"] = global_max_strain
-
-    for row in range(3, 8):
-        ws_summary[f"J{row}"].font = bold_font
-
-    # ================= SUMMARY LABEL =================
-    ws_summary["A16"] = "Summary Data"
-    ws_summary["A16"].font = medium_bold_font
-
-    # Column widths
-    ws_data.column_dimensions["A"].width = 18
-    ws_data.column_dimensions["B"].width = 20
-    ws_data.column_dimensions["C"].width = 15
-    ws_data.column_dimensions["D"].width = 18
-    ws_data.column_dimensions["E"].width = 15
-
-    ws_summary.column_dimensions["A"].width = 22
-    ws_summary.column_dimensions["B"].width = 20
-    ws_summary.column_dimensions["D"].width = 28
-    ws_summary.column_dimensions["E"].width = 20
-    ws_summary.column_dimensions["J"].width = 30
-    ws_summary.column_dimensions["K"].width = 20
-
-    # Insert graphs
-    img1 = XLImage(str(plot1_path))
-    img2 = XLImage(str(plot2_path))
-
-    img1.width = 600
-    img1.height = 400
-    img2.width = 600
-    img2.height = 400
-
-    ws_summary.add_image(img1, "J10")
-    ws_summary.add_image(img2, "J32")
-
-print(f"\nExcel file created successfully:\n{output_excel}")
-
-# Show plots after export
-plt.show()
+engine = get_excel_engine(file_path)
+
+sheet_df = pd.read_excel(
+    file_path,
+    sheet_name=sheet_name,
+    header=None,
+    engine=engine
+)
+
+metadata_header_idx = metadata_header_row_excel - 1
+metadata_value_idx = metadata_value_row_excel - 1
+raw_header_idx = raw_data_header_row_excel - 1
+
+header_row = sheet_df.iloc[metadata_header_idx].tolist()
+value_row = sheet_df.iloc[metadata_value_idx].tolist()
+
+meta = build_metadata_dict(header_row, value_row)
+
+# Raw data section
+raw_header_values = sheet_df.iloc[raw_header_idx].tolist()
+raw_data = sheet_df.iloc[raw_header_idx + 1:].copy()
+raw_data.columns = [clean_string(x) for x in raw_header_values]
+raw_data = raw_data.loc[:, [c for c in raw_data.columns if c != ""]]
+
+if x_axis_col not in raw_data.columns or y_axis_col not in raw_data.columns:
+    raise KeyError(
+        f"Could not find '{x_axis_col}' and/or '{y_axis_col}' in raw data headers. "
+        f"Found: {list(raw_data.columns)}"
+    )
+
+raw_data[x_axis_col] = pd.to_numeric(raw_data[x_axis_col], errors="coerce")
+raw_data[y_axis_col] = pd.to_numeric(raw_data[y_axis_col], errors="coerce")
+raw_data = raw_data.dropna(subset=[x_axis_col, y_axis_col]).reset_index(drop=True)
+
+# ============================================================
+# READ METADATA
+# ============================================================
+
+name_of_cad_file = lookup_meta(meta, ["Name of CAD File"])
+date_sample_laser_fabbed = lookup_meta(meta, ["Date Sample Laser Fabbed"])
+serial_sample_name = lookup_meta(meta, ["Serial Sample Name (on sample bag)"])
+num_duplicate_samples = lookup_meta(meta, ["Number of Duplicate Samples"])
+material = lookup_meta(meta, ["Material (e.g. SMC SMA, SS, etc.)"])
+austenite_finish_temp = lookup_meta(meta, ["Austenite Finish Temperature (if SMA)"])
+specimen_type = lookup_meta(meta, ["Specimen Type (i.e. auxetic, dogbone, serpentine)"])
+sample_length = safe_float(lookup_meta(meta, ["Sample Length (mm)"]))
+sample_width = safe_float(lookup_meta(meta, ["Sample Width (mm)"]))
+sample_thickness = safe_float(lookup_meta(meta, ["Sample Thickness (mm)"]))
+serp_height_aux_width = lookup_meta(meta, ["Serpentine Height/ Auxetic Width (mm)"])
+box_location = lookup_meta(meta, ["Box/ Location of Samples"])
+
+date_tensile_testing = lookup_meta(meta, ["Date of Tensile Testing"])
+user_name = lookup_meta(meta, ["User"])
+sample_number = lookup_meta(meta, ["Sample Number"])
+sample_length_hot_plate = safe_float(lookup_meta(meta, ["Sample Length After Placing on Hot Plate (mm)"]))
+microscope_name_date = lookup_meta(meta, ["Name/ Date of Microscope Image"])
+mech_test_frequency = safe_float(lookup_meta(meta, ["Mech. Test Frequency (Hz)"]))
+num_cycles = lookup_meta(meta, ["No. of Cycles"])
+force_rate = safe_float(lookup_meta(meta, ["Force rate (N/s)"]))
+temperature = lookup_meta(meta, ["Temperature ( °C) or RT", "Temperature (°C) or RT"], default_temperature)
+current = safe_float(lookup_meta(meta, ["Current (A)"], default_current))
+voltage = safe_float(lookup_meta(meta, ["Voltage (V)"], default_voltage))
+power_supply_on_time = safe_float(lookup_meta(meta, ["Power Supply On Time"], default_on_time))
+power_supply_off_time = safe_float(lookup_meta(meta, ["Power Supply Off Time"], default_off_time))
+measurement_type = lookup_meta(meta, ["Type of Measurement from SOP"])
+raw_excel_name = lookup_meta(meta, ["Name of Excel Sheet with Raw Data (yr.mo.da___)"])
+after_microscope_image_date = lookup_meta(meta, ["After microscope image date?", "After microscope image  date?"])
+sample_alive_location = lookup_meta(meta, ["Sample still alive? Location of Sample?"])
+notes_purpose = lookup_meta(meta, ["Notes (i.e. purpose of the experiment)"])
+notes_observations = lookup_meta(meta, ["Notes/ observations/ conclusions about the test:", "Notes/ observations/ conclusions about the test"])
+
+# ============================================================
+# CALCULATIONS
+# ============================================================
+
+if sample_width is None or sample_thickness is None:
+    raise ValueError("Sample Width and Sample Thickness must be available in row 2.")
+
+if sample_length is None:
+    raise ValueError("Sample Length (mm) must be available in row 2.")
+
+cross_section_area = sample_width * sample_thickness
+
+displacement = raw_data[x_axis_col] - initial_position
+load = raw_data[y_axis_col]
+
+max_load = load.max()
+max_disp = displacement.max()
+
+max_strain_as_fab = max_disp / sample_length if sample_length else None
+max_strain_post_hot_plate = (
+    max_disp / sample_length_hot_plate
+    if sample_length_hot_plate not in [None, 0]
+    else None
+)
+max_stress = max_load / cross_section_area if cross_section_area not in [None, 0] else None
+power_w = voltage * current if voltage is not None and current is not None else None
+energy_j = power_w * power_supply_on_time if power_w is not None and power_supply_on_time is not None else None
+
+strain = displacement / sample_length if sample_length not in [None, 0] else displacement * float("nan")
+stress = load / cross_section_area if cross_section_area not in [None, 0] else load * float("nan")
+
+# ============================================================
+# SAVE PLOTS
+# ============================================================
+
+plot1_path, plot2_path = plot_and_save(displacement, load, strain, stress)
+
+# ============================================================
+# BUILD WORD DOCUMENT
+# ============================================================
+
+doc = Document()
+
+section = doc.sections[0]
+section.top_margin = Inches(0.5)
+section.bottom_margin = Inches(0.5)
+section.left_margin = Inches(0.55)
+section.right_margin = Inches(0.55)
+
+add_title_block(doc)
+
+# Outer table for top two side-by-side tables
+outer = doc.add_table(rows=1, cols=2)
+outer.alignment = WD_TABLE_ALIGNMENT.CENTER
+outer.autofit = False
+outer.columns[0].width = Inches(3.45)
+outer.columns[1].width = Inches(3.45)
+
+left_cell = outer.cell(0, 0)
+right_cell = outer.cell(0, 1)
+
+# ---------------- LEFT TABLE ----------------
+left_cell.text = ""
+p_left_title = left_cell.paragraphs[0]
+p_left_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+r = p_left_title.add_run("Table 1: Geometry/ CAD info")
+r.bold = True
+r.font.size = Pt(9)
+
+tbl1 = left_cell.add_table(rows=12, cols=2)
+tbl1.style = "Table Grid"
+tbl1.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+table1_rows = [
+    ("Name of CAD File", name_of_cad_file),
+    ("Date Sample Laser Fabbed", date_sample_laser_fabbed),
+    ("Serial Sample Name (on sample bag)", serial_sample_name),
+    ("Number of Duplicate Samples", num_duplicate_samples),
+    ("Material (e.g. SMC SMA, SS, etc.)", material),
+    ("Austenite Finish Temperature (if SMA)", austenite_finish_temp),
+    ("Specimen Type (i.e. auxetic, dogbone, serpentine)", specimen_type),
+    ("Sample Length (mm)", format_number(sample_length)),
+    ("Sample Width (mm)", format_number(sample_width)),
+    ("Sample Thickness (mm)", format_number(sample_thickness)),
+    ("Serpentine Height/ Auxetic Width (mm)", serp_height_aux_width),
+    ("Box/ Location of Samples", box_location),
+]
+
+for i, (label, value) in enumerate(table1_rows):
+    set_cell_text(tbl1.cell(i, 0), label, bold=True, font_size=8)
+    set_cell_text(tbl1.cell(i, 1), value, font_size=8)
+    set_cell_shading(tbl1.cell(i, 0), "EAF2FF")
+
+# ---------------- RIGHT TABLE ----------------
+right_cell.text = ""
+p_right_title = right_cell.paragraphs[0]
+p_right_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+r = p_right_title.add_run("Table 2: Tensile Testing Input")
+r.bold = True
+r.font.size = Pt(9)
+
+table2_rows = [
+    ("Date of Tensile Testing", date_tensile_testing),
+    ("User", user_name),
+    ("Sample Number", sample_number),
+    ("Sample Length After Placing on Hot Plate (mm)", format_number(sample_length_hot_plate)),
+    ("Name/ Date of Microscope Image", microscope_name_date),
+    ("Mech. Test Frequency (Hz)", format_number(mech_test_frequency)),
+    ("No. of Cycles", num_cycles),
+    ("Force rate (N/s)", format_number(force_rate)),
+    ("Max Load (N)", format_number(max_load)),
+    ("Max Disp (mm)", format_number(max_disp)),
+    ("Hysteresis (N-mm)", "N/A"),
+    ("Temperature (°C) or RT", temperature),
+    ("Current (A)", format_number(current)),
+    ("Voltage (V)", format_number(voltage)),
+    ("Power Supply On Time", format_number(power_supply_on_time)),
+    ("Power Supply Off Time", format_number(power_supply_off_time)),
+    ("Type of Measurement from SOP", measurement_type),
+    ("Name of Excel Sheet with Raw Data (yr.mo.da___)", raw_excel_name),
+    ("After microscope image date?", after_microscope_image_date),
+    ("Sample still alive? Location of Sample?", sample_alive_location),
+    ("Notes (i.e. purpose of the experiment)", notes_purpose),
+    ("Notes/ observations/ conclusions about the test", notes_observations),
+]
+
+tbl2 = right_cell.add_table(rows=len(table2_rows), cols=2)
+tbl2.style = "Table Grid"
+tbl2.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+for i, (label, value) in enumerate(table2_rows):
+    set_cell_text(tbl2.cell(i, 0), label, bold=True, font_size=8)
+    set_cell_text(tbl2.cell(i, 1), value, font_size=8)
+    set_cell_shading(tbl2.cell(i, 0), "F4F4F4")
+
+doc.add_paragraph("")
+
+# ---------------- TABLE 3 ----------------
+p_t3 = doc.add_paragraph()
+p_t3.alignment = WD_ALIGN_PARAGRAPH.LEFT
+r = p_t3.add_run("Table 3: Calculated Values")
+r.bold = True
+r.font.size = Pt(9)
+
+tbl3 = doc.add_table(rows=6, cols=2)
+tbl3.style = "Table Grid"
+tbl3.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+table3_rows = [
+    ("Sample Area (thickness*width)", format_number(cross_section_area)),
+    ("Max Strain % from As-Fab Length", format_number(max_strain_as_fab * 100 if max_strain_as_fab is not None else None)),
+    ("Max Strain from Initial Length (post hot plate)", format_number(max_strain_post_hot_plate)),
+    ("Max Stress (MPa) = Force/ Area", format_number(max_stress)),
+    ("Power (W) = volts (V) x amps (A)", format_number(power_w)),
+    ("Energy (Joules) = Power (W) x ON time (s)", format_number(energy_j)),
+]
+
+for i, (label, value) in enumerate(table3_rows):
+    set_cell_text(tbl3.cell(i, 0), label, bold=True, font_size=8)
+    set_cell_text(tbl3.cell(i, 1), value, font_size=8)
+    set_cell_shading(tbl3.cell(i, 0), "F3E8FF")
+
+doc.add_paragraph("")
+
+# ---------------- GRAPHS ----------------
+graph_table = doc.add_table(rows=1, cols=2)
+graph_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+graph_table.autofit = False
+graph_table.columns[0].width = Inches(3.45)
+graph_table.columns[1].width = Inches(3.45)
+
+graph_table.cell(0, 0).paragraphs[0].add_run().add_picture(str(plot1_path), width=Inches(3.3))
+graph_table.cell(0, 1).paragraphs[0].add_run().add_picture(str(plot2_path), width=Inches(3.3))
+
+# Save file
+doc.save(output_docx)
+
+print(f"Report created successfully:\n{output_docx}")
